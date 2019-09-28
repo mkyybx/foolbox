@@ -461,7 +461,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
                 print(x - x_before_mapping_back)
 
             if should_enforce_policy:
-                logits, is_adversarial = a.predictions(x)
+                logits, is_adversarial = a.forward_one(x)
                 if logging.getLogger().isEnabledFor(logging.DEBUG):
                     if targeted:
                         ce = crossentropy(a.original_class, logits)
@@ -488,7 +488,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
 
 class LinfinityGradientMixin(object):
     def _gradient(self, a, x, class_, strict=True):
-        gradient = a.gradient(x, class_, strict=strict)
+        gradient = a.gradient_one(x, class_, strict=strict)
         gradient = np.sign(gradient)
         min_, max_ = a.bounds()
         gradient = (max_ - min_) * gradient
@@ -497,7 +497,7 @@ class LinfinityGradientMixin(object):
 
 class L1GradientMixin(object):
     def _gradient(self, a, x, class_, strict=True):
-        gradient = a.gradient(x, class_, strict=strict)
+        gradient = a.gradient_one(x, class_, strict=strict)
         # using mean to make range of epsilons comparable to Linf
         gradient = gradient / np.mean(np.abs(gradient))
         min_, max_ = a.bounds()
@@ -507,7 +507,7 @@ class L1GradientMixin(object):
 
 class L2GradientMixin(object):
     def _gradient(self, a, x, class_, strict=True):
-        gradient = a.gradient(x, class_, strict=strict)
+        gradient = a.gradient_one(x, class_, strict=strict)
         # using mean to make range of epsilons comparable to Linf
         gradient = gradient / np.sqrt(np.mean(np.square(gradient)))
         min_, max_ = a.bounds()
@@ -1014,7 +1014,7 @@ class MomentumIterativeAttack(
 
     def _gradient(self, a, x, class_, strict=True):
         # get current gradient
-        gradient = a.gradient(x, class_, strict=strict)
+        gradient = a.gradient_one(x, class_, strict=strict)
         gradient = gradient / max(1e-12, np.mean(np.abs(gradient)))
 
         # combine with history of gradient as new history
