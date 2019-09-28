@@ -19,15 +19,22 @@ from .. import distances
 from ..utils import crossentropy
 from .. import nprng
 
+from ..distances import Distance
+from ..distances import MSE
+
 from ..map_back import modify_json
 from ..map_back import get_file_names
 from ..map_back import compute_x_after_mapping_back
+
+from ..classify import predict
+from ..classify import setup_clf
 
 import matplotlib.pyplot as plt
 import math
 
 from urllib.parse import urlsplit
 
+LABLE = {"AD": False, "NONAD": True}
 
 class IterativeProjectedGradientBaseAttack(Attack):
     """Base class for iterative (projected) gradient attacks.
@@ -327,8 +334,8 @@ class IterativeProjectedGradientBaseAttack(Attack):
     def _get_x_after_mapping_back(self, domain, url_id, diff, working_dir="~/Desktop/AdGraphAPI/scripts"):
         original_json, original_json_fname, url_id_map = get_file_names(domain)
         modified_json = modify_json(original_json, domain, url_id, diff, url_id_map)
-        mapped_x = compute_x_after_mapping_back(domain, url_id, modified_json, original_json_fname, working_dir)
-        return mapped_x
+        mapped_x, mapped_unnormalized_x = compute_x_after_mapping_back(domain, url_id, modified_json, original_json_fname, working_dir)
+        return mapped_x, mapped_unnormalized_x
 
     def _run_one(self, a, epsilon, stepsize, iterations,
                  random_start, targeted, class_, return_early,
@@ -457,11 +464,13 @@ class IterativeProjectedGradientBaseAttack(Attack):
                     normalization_ratios)
                 print(i, diff)
                 x_before_mapping_back = x.copy()
-                x = self._get_x_after_mapping_back(domain, url_id, diff)
-                print(x - x_before_mapping_back)
+                x, unnorm_x = self._get_x_after_mapping_back(domain, url_id, diff)
+                #print(x - x_before_mapping_back)
 
             if should_enforce_policy:
                 logits, is_adversarial = a.forward_one(x)
+                new_prediction = predict(unnorm_x, self._remote_model)
+                is_adversarial_remote = LABLE[new_prediction[0]]
                 if logging.getLogger().isEnabledFor(logging.DEBUG):
                     if targeted:
                         ce = crossentropy(a.original_class, logits)
@@ -474,7 +483,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
                 # feature space. That is, we should only "descend" by changing "perturbable"
                 # features in a "legitimate" fashion
                 x = x_before_mapping_back
-                if is_adversarial:
+                if is_adversarial_remote:
                     if return_early:
                         return True
                     else:
@@ -834,6 +843,9 @@ class ProjectedGradientDescentAttack(
        :class:`RandomStartProjectedGradientDescentAttack`
 
     """
+    # overriden init method in ABC
+    def _initialize(self):
+        self._remote_model = setup_clf("/home/shitong/Desktop/AdGraphAPI/scripts/model/rf.pkl")
 
     @call_decorator
     def __call__(self, input_or_adv, label=None, unpack=True,
@@ -895,6 +907,9 @@ class ProjectedGradientDescentAttack(
         del unpack
 
         assert epsilon > 0
+
+        # if self._remote_model is None:
+        #     self._remote_model = setup_clf("/home/shitong/Desktop/AdGraphAPI/scripts/model/rf.pkl")
 
         print("Parameters:", epsilon, stepsize, iterations, enforce_interval, request_id)
         self._run(a, binary_search,

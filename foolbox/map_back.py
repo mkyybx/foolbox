@@ -431,7 +431,7 @@ def compute_x_after_mapping_back(domain_url, url_id, modified_json, original_jso
         BASE_DEF_DIR + "col_stats_for_unnormalization.csv")
     normalized_x = normalize_x(
         one_hot_encoded_x, encoded_feature_def, feature_stats, idx_to_feature_name_map)
-    return np.array(normalized_x).astype(np.float)
+    return np.array(normalized_x).astype(np.float), new_x
 
 
 if __name__ == "__main__":
