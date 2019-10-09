@@ -598,7 +598,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
                 if debug:
                     print("Step #%d, L2 distance: %f | LP distance: %f" % (i, l2_dist, lf_dist))
 
-            x = original + self._clip_perturbation(a, x - original, epsilon, feature_defs)
+            x = original + self._clip_perturbation(a, x - original, original, epsilon, feature_defs)
             x = np.clip(x, min_, max_)
 
             if should_enforce_policy and map_back_mode:
@@ -779,10 +779,6 @@ class L2GradientMixin(object):
     def _gradient(self, a, x, class_, strict=True):
         gradient = a.gradient_one(x, class_, strict=strict)
         # using mean to make range of epsilons comparable to Linf
-        # print(str(gradient))
-        # print(str(np.square(gradient)))
-        # print(str(np.mean(np.square(gradient))))
-        # print(str(np.sqrt(np.mean(np.square(gradient)))))
         gradient = gradient / np.sqrt(np.mean(np.square(gradient)))
         min_, max_ = a.bounds()
         gradient = (max_ - min_) * gradient
@@ -790,14 +786,23 @@ class L2GradientMixin(object):
 
 
 class LinfinityClippingMixin(object):
-    def _clip_perturbation(self, a, perturbation, epsilon, feature_defs):
+    def _clip_perturbation(self, a, perturbation, original, epsilon, feature_defs):
+        _LOCAL_EPSILON = 0.8 # hard-coded for now
+        _LOCAL_FEATURE_IDX_SET = {0, 1} # hard-coded for now as well
+        
         original_perturbation = perturbation.copy()
         min_, max_ = a.bounds()
         s = max_ - min_
         clipped = np.clip(perturbation, -epsilon * s, epsilon * s)
+        
         for i in range(len(clipped)):
             if feature_defs[i] in {"b", "c"}:
                 clipped[i] = original_perturbation[i]
+            if i in _LOCAL_FEATURE_IDX_SET:
+                s_local = original[i]
+                offset = min(epsilon * s, _LOCAL_EPSILON * s_local) # use the smaller offset
+                clipped[i] = np.clip([original_perturbation[i]], -offset, offset)[0]
+        
         return clipped
 
 
