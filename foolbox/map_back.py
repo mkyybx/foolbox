@@ -7,7 +7,7 @@ import random
 # AS A EQUVALENCE OF WEBPAGE-SPACE)
 
 HOME_DIR = os.getenv("HOME")
-BASE_TIMELINE_DIR = "/run/media/shitong/data/rendering_stream/"
+BASE_TIMELINE_DIR = HOME_DIR + "/rendering_stream/"
 BASE_DEF_DIR = HOME_DIR + "/Desktop/attack-adgraph-pipeline/def/"
 
 TEST_MODE = 2
@@ -208,95 +208,96 @@ def modify_json(json, domain, request_id, diff, url_id_map, original_json_fname=
 
     for event in rendering_stream['timeline']:
         updated_event = event
-        if "node_id" in event:
-            if event['node_id'] == request_node_id and event["event_type"] == "NodeCreation":
-                # step 1: create and insert script compilation/execution node
-                script_node_creation_event = generate_node_creation_event(
-                    node_id=curr_node_id,
-                    actor_id="0",
-                    tag_name="script",
-                    node_type=3
-                )
-                script_node_insertion_event = generate_node_insertion_event(
-                    node_id=curr_node_id,
-                    actor_id="0",
-                    node_type=3,
-                    tag_name="",
-                    parent_node_id=request_node_parent_id,
-                    previous_sibling_node_id=curr_node_previous_sibling_id,
-                    parent_node_type=request_node_parent_type
-                )
-                updated_rendering_stream['timeline'].append(
-                    script_node_creation_event)
-                updated_rendering_stream['timeline'].append(
-                    script_node_insertion_event)
-
-                curr_node_previous_sibling_id += 1
-                script_compilation_event = generate_script_compilation_event(
-                    node_id=curr_node_id,
-                    script_id=curr_script_id,
-                    script_text="dummy",
-                    script_url="dummy_url"
-                )
-                script_execution_start_node_id = curr_node_id
-                script_execution_start_event = generate_script_execution_event(
-                    node_id=script_execution_start_node_id,
-                    script_id=curr_script_id,
-                    script_text="dummy",
-                    script_url="dummy_url",
-                    in_execution=True
-                )
-                updated_rendering_stream['timeline'].append(
-                    script_compilation_event)
-                updated_rendering_stream['timeline'].append(
-                    script_execution_start_event)
-                curr_node_id += 1
-
-                # print("Before insersion:" + str(len(updated_rendering_stream['timeline'])))
-                # step 2: create and insert dummy nodes
-                for i in range(diff[0]):
-                    curr_node_previous_sibling_id = curr_node_id - 1
-                    dummy_node_creation_event = generate_node_creation_event(
+        if 0 in diff:
+            if "node_id" in event:
+                if event['node_id'] == request_node_id and event["event_type"] == "NodeCreation":
+                    # step 1: create and insert script compilation/execution node
+                    script_node_creation_event = generate_node_creation_event(
                         node_id=curr_node_id,
-                        actor_id=curr_script_id,
-                        tag_name="div",
-                        node_type=1
+                        actor_id="0",
+                        tag_name="script",
+                        node_type=3
                     )
-                    dummy_node_insertion_event = generate_node_insertion_event(
+                    script_node_insertion_event = generate_node_insertion_event(
                         node_id=curr_node_id,
-                        actor_id=curr_script_id,
+                        actor_id="0",
+                        node_type=3,
+                        tag_name="",
                         parent_node_id=request_node_parent_id,
                         previous_sibling_node_id=curr_node_previous_sibling_id,
-                        tag_name="DIV",
-                        node_type=1,
-                        parent_node_type=1
+                        parent_node_type=request_node_parent_type
                     )
                     updated_rendering_stream['timeline'].append(
-                        dummy_node_creation_event)
+                        script_node_creation_event)
                     updated_rendering_stream['timeline'].append(
-                        dummy_node_insertion_event)
-                    dummy_node_ids.append(curr_node_id)
+                        script_node_insertion_event)
+
+                    curr_node_previous_sibling_id += 1
+                    script_compilation_event = generate_script_compilation_event(
+                        node_id=curr_node_id,
+                        script_id=curr_script_id,
+                        script_text="dummy",
+                        script_url="dummy_url"
+                    )
+                    script_execution_start_node_id = curr_node_id
+                    script_execution_start_event = generate_script_execution_event(
+                        node_id=script_execution_start_node_id,
+                        script_id=curr_script_id,
+                        script_text="dummy",
+                        script_url="dummy_url",
+                        in_execution=True
+                    )
+                    updated_rendering_stream['timeline'].append(
+                        script_compilation_event)
+                    updated_rendering_stream['timeline'].append(
+                        script_execution_start_event)
                     curr_node_id += 1
-                # print("After insersion:" + str(len(updated_rendering_stream['timeline'])))
 
-                # step 3: create and insert script execution end event
-                script_execution_end_event = generate_script_execution_event(
-                    node_id=script_execution_start_node_id,
-                    script_id=curr_script_id,
-                    script_text="dummy",
-                    script_url="dummy_url",
-                    in_execution=False
-                )
-                updated_rendering_stream['timeline'].append(
-                    script_execution_end_event)
+                    # print("Before insersion:" + str(len(updated_rendering_stream['timeline'])))
+                    # step 2: create and insert dummy nodes
+                    for i in range(diff[0]):
+                        curr_node_previous_sibling_id = curr_node_id - 1
+                        dummy_node_creation_event = generate_node_creation_event(
+                            node_id=curr_node_id,
+                            actor_id=curr_script_id,
+                            tag_name="div",
+                            node_type=1
+                        )
+                        dummy_node_insertion_event = generate_node_insertion_event(
+                            node_id=curr_node_id,
+                            actor_id=curr_script_id,
+                            parent_node_id=request_node_parent_id,
+                            previous_sibling_node_id=curr_node_previous_sibling_id,
+                            tag_name="DIV",
+                            node_type=1,
+                            parent_node_type=1
+                        )
+                        updated_rendering_stream['timeline'].append(
+                            dummy_node_creation_event)
+                        updated_rendering_stream['timeline'].append(
+                            dummy_node_insertion_event)
+                        dummy_node_ids.append(curr_node_id)
+                        curr_node_id += 1
+                    # print("After insersion:" + str(len(updated_rendering_stream['timeline'])))
 
-        # step 4: modify the previous_subling_id of the NodeInsertion event of target request
-        # to make sure that it now points to the last dummy node
-        if "node_attributes" in event:
-            for attr in event["node_attributes"]:
-                if attr["attr_value"] == request_url:
-                    updated_event["node_previous_sibling_id"] = str(
-                        curr_node_id)
+                    # step 3: create and insert script execution end event
+                    script_execution_end_event = generate_script_execution_event(
+                        node_id=script_execution_start_node_id,
+                        script_id=curr_script_id,
+                        script_text="dummy",
+                        script_url="dummy_url",
+                        in_execution=False
+                    )
+                    updated_rendering_stream['timeline'].append(
+                        script_execution_end_event)
+
+            # step 4: modify the previous_subling_id of the NodeInsertion event of target request
+            # to make sure that it now points to the last dummy node
+            if "node_attributes" in event:
+                for attr in event["node_attributes"]:
+                    if attr["attr_value"] == request_url:
+                        updated_event["node_previous_sibling_id"] = str(
+                            curr_node_id)
 
         # step 5: lastly add node removal events to remove previously added dummy nodes
         if "request_url" in event and "requestor_id" in event:
@@ -314,13 +315,14 @@ def modify_json(json, domain, request_id, diff, url_id_map, original_json_fname=
                 updated_rendering_stream['timeline'].append(updated_event)
 
                 # sub-step 2: handle removal nodes
-                for i in range(len(dummy_node_ids)):
-                    removal_event = generate_node_removal_event(
-                        node_id=dummy_node_ids[i],
-                        actor_id=curr_script_id
-                    )
-                    updated_rendering_stream['timeline'].append(removal_event)
-                continue
+                if 0 in diff:
+                    for i in range(len(dummy_node_ids)):
+                        removal_event = generate_node_removal_event(
+                            node_id=dummy_node_ids[i],
+                            actor_id=curr_script_id
+                        )
+                        updated_rendering_stream['timeline'].append(removal_event)
+                    continue
 
         updated_rendering_stream['timeline'].append(updated_event)
     # input("Length of perturbed timeline: " + str(len(updated_rendering_stream['timeline'])))
