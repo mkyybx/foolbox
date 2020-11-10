@@ -9,6 +9,8 @@ import numpy as np
 from abc import abstractmethod
 import logging
 import warnings
+import os
+from bs4 import BeautifulSoup
 
 # for computing distance after each projection
 from scipy.spatial import distance
@@ -23,9 +25,11 @@ from ..distances import Distance
 from ..distances import MSE
 
 from ..map_back import modify_json
-from ..map_back import get_file_names
+# from ..map_back import get_file_names
 from ..map_back import compute_x_after_mapping_back
 from ..map_back import mapback
+
+from ..perturb_html import featureMapbacks
 
 from ..classify import predict
 from ..classify import setup_clf
@@ -33,6 +37,7 @@ from ..classify import setup_clf
 import matplotlib.pyplot as plt
 import math
 
+import json
 from urllib.parse import urlsplit
 
 LABLE = {"AD": 1, "NONAD": 0}
@@ -54,6 +59,44 @@ class IterativeProjectedGradientBaseAttack(Attack):
     TODO: add support for other loss-functions, e.g. the CW loss function,
     see https://github.com/MadryLab/mnist_challenge/blob/master/pgd_attack.py
     """
+
+    def __init__(self, *args, **kwargs):
+        def _reduce_url_to_domain(url):
+            html_filename = url.split('/')[-1]
+            html_filename = html_filename.split('_')[-1]
+            html_filename = html_filename.strip('.source')
+            html_filename = html_filename.strip('.html')
+            return html_filename
+
+        super(IterativeProjectedGradientBaseAttack, self).__init__(*args, **kwargs)
+        self.BASE_CRAWLED_DIR = "~/rendering_stream/html"
+        self.all_html_filepaths = os.listdir(self.BASE_CRAWLED_DIR)
+        self.BASE_MAPPING_DIR = "~/rendering_stream/mappings"
+        self.all_mapping_filepaths = os.listdir(self.BASE_MAPPING_DIR)
+        self.BASE_TIMELINE_DIR = "~/rendering_stream/timeline"
+        self.all_timeline_filepaths = os.listdir(self.BASE_TIMELINE_DIR)
+
+        self.url_to_timeline_fname_map = {}
+        self.mapping = {}
+
+        for mapping_file in self.all_mapping_filepaths:
+            if mapping_file.endswith('.csv'):
+                domain = mapping_file.strip('.csv')
+                self.mapping[domain] = {}
+                with open(self.BASE_MAPPING_DIR + '/' + mapping_file, 'r') as fin:
+                    data = fin.readlines()
+                for row in data:
+                    row = row.strip()
+                    url_id, url = row.split(',', 1)
+                    self.mapping[domain][url_id] = url
+
+        for timeline_file in self.all_timeline_filepaths:
+            if timeline_file.endswith(".json"):
+                with open(self.BASE_TIMELINE_DIR + '/' + timeline_file, 'r') as fin:
+                    data = json.load(fin)
+                url = data['url']
+                url = _reduce_url_to_domain(url)
+                self.url_to_timeline_fname_map[url] = timeline_file
 
     @abstractmethod
     def _gradient(self, a, x, class_, strict=True):
@@ -273,7 +316,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
              perturbable_idx_set, only_increase_idx_set,
              feature_defs, normalization_ratios,
              enforce_interval, request_id, model,
-             map_back_mode, logger):
+             map_back_mode, feature_idx_map, logger):
         if not a.has_gradient():
             warnings.warn('applied gradient-based attack to model that'
                           ' does not provide gradients')
@@ -307,7 +350,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
                 normalization_ratios=normalization_ratios,
                 enforce_interval=enforce_interval,
                 request_id=request_id, model=model, map_back_mode=map_back_mode,
-                logger=logger)
+                feature_idx_map=feature_idx_map, logger=logger)
 
     def _get_geometric_enforce_interval(self, base, iteations, i):
         progress = float(i + 1) / iteations
@@ -373,15 +416,67 @@ class IterativeProjectedGradientBaseAttack(Attack):
 
         return delta
 
-    def _get_x_after_mapping_back(self, domain, url_id, diff, mapback_mode, working_dir="~/Desktop/AdGraphAPI/scripts", first_time=False):
-        original_json, original_json_fname, url_id_map = get_file_names(domain)
-        if mapback_mode == "centralized":
-            modified_json = modify_json(original_json, domain, url_id, diff, url_id_map, original_json_fname)
-        if mapback_mode == "distributed":
-            request_url = url_id_map[url_id]
-            modified_json = mapback(original_json, diff, request_url)
+    def _reverse_a_map(self, map):
+        reversed = {}
+        for feature_name, feature_id in map.items():
+            reversed[feature_id] = feature_name
+        return reversed
+
+    def _read_curr_html(self, domain, read_modified):
+        curr_html = None
+        for filepath in self.all_html_filepaths:
+            if domain in filepath:
+                if read_modified:
+                    if 'modified' in filepath:
+                        with open(self.BASE_CRAWLED_DIR + "/" + filepath, "r") as fin:
+                            curr_html = BeautifulSoup(fin, features="html.parser")
+                            break
+                else:
+                    if 'modified' not in filepath:
+                        with open(self.BASE_CRAWLED_DIR + "/" + filepath, "r") as fin:
+                            curr_html = BeautifulSoup(fin, features="html.parser")
+                            break
+        if curr_html is None:
+            print("[FATAL] HTML file not found!")
+            raise Exception
+
+        return curr_html, filepath
+
+    def _get_x_after_mapping_back(self, domain, url_id, diff, working_dir="~/Desktop/AdGraphAPI/scripts", feature_idx_map=None, first_time=False):
+        reversed_feature_idx_map = self._reverse_a_map(feature_idx_map)
+        if first_time:
+            html, html_fname = self._read_curr_html(domain, read_modified=False)
+        else:
+            html, html_fname = self._read_curr_html(domain, read_modified=True)
+
+        try:
+            url = self.mapping[domain][url_id]
+        except KeyError:
+            url = "dummy.com/dummy.js"
+
+        at_least_one_diff_success = False
+        new_html = None
+
+        for feature_id, delta in diff.items():
+            try:
+                new_html = featureMapbacks(name=reversed_feature_idx_map[feature_id], html=html, url=url, delta=delta)
+            except AttributeError as err:
+                print("Could not find the element: %s" % str(err))
+
+            if new_html is None:
+                continue
+            else:
+                html = new_html
+                at_least_one_diff_success = True
+
+        if not at_least_one_diff_success:
+            print("[ERROR] No diff was successfully mapped back!")
+            raise Exception
+
+        # Write back to HTML file after circulating all outstanding perturbations in this iteration
         mapped_x, mapped_unnormalized_x = compute_x_after_mapping_back(
-            domain, url_id, modified_json, original_json_fname, working_dir=working_dir, first_time=first_time)
+            domain, url_id, html, html_fname, working_dir=working_dir)
+
         return mapped_x, mapped_unnormalized_x
 
     def _deprocess_x(self, x, feature_types, verbal=False):
@@ -495,12 +590,12 @@ class IterativeProjectedGradientBaseAttack(Attack):
                  feature_defs=None, normalization_ratios=None,
                  enforce_interval=1, request_id="URL_dummy", dynamic_interval=False,
                  debug=False, draw=False, map_back_mode=True, remote_model=True,
-                 check_correctness=False, check_init_correctness=True, logger=None):
+                 check_correctness=False, check_init_correctness=True, feature_idx_map=None, logger=None):
         if draw:
             x_axis, y_l2, y_lf = [], [], []
 
         domain, url_id = request_id.split(',')
-        domain = "{0.netloc}".format(urlsplit(domain))
+        domain = domain.split('/')[-1].replace('.html', '')
 
         min_, max_ = a.bounds()
         s = max_ - min_
@@ -519,8 +614,8 @@ class IterativeProjectedGradientBaseAttack(Attack):
             x = original
             strict = True  # we don't care about the bounds because we are not attacking image clf
 
-        success = False
-        success_cent, success_dist = False, False
+        # success = False
+        success_cent = False
 
         if enforce_interval == iterations - 1:
             only_post_process = True
@@ -617,17 +712,24 @@ class IterativeProjectedGradientBaseAttack(Attack):
                     x,
                     original,
                     perturbable_idx_set,
-                    normalization_ratios)
+                    normalization_ratios
+                )
                 print("Delta at iter #%d: %s" % (i, str(diff)))
+                print("Domain: %s" % domain)
+                print("URL ID: %s" % url_id)
                 x_before_mapping_back = x.copy()
-                x_cent, unnorm_x_cent = self._get_x_after_mapping_back(
-                    domain, url_id, diff, "centralized", first_time=is_first_iter)
-                x_dist, unnorm_x_dist = self._get_x_after_mapping_back(
-                    domain, url_id, diff, "distributed", first_time=is_first_iter)
+                try:
+                    x_cent, unnorm_x_cent = self._get_x_after_mapping_back(
+                        domain, url_id, diff, feature_idx_map=feature_idx_map, first_time=is_first_iter)
+                except Exception:
+                    print("Some error occured mapping!")
+                    return False
+                # x_dist, unnorm_x_dist = self._get_x_after_mapping_back(
+                #     domain, url_id, diff, "distributed", feature_idx_map=feature_idx_map, first_time=is_first_iter)
                 is_first_iter = False
 
                 del unnorm_x_cent[-1]  # remove label
-                del unnorm_x_dist[-1]  # remove label
+                # del unnorm_x_dist[-1]  # remove label
 
                 for j in range(len(x_cent)):
                     if j in diff:
@@ -635,17 +737,17 @@ class IterativeProjectedGradientBaseAttack(Attack):
                             continue
                         if diff[j] == 1.0:
                             x_cent[j] = 1.0
-                            x_dist[j] = 1.0
+                            # x_dist[j] = 1.0
                             unnorm_x_cent[NORM_MAP[j]] = "1"
-                            unnorm_x_dist[NORM_MAP[j]] = "1"
+                            # unnorm_x_dist[NORM_MAP[j]] = "1"
                         if diff[j] == -1.0:
                             x_cent[j] = 0.0
-                            x_dist[j] = 0.0
+                            # x_dist[j] = 0.0
                             unnorm_x_cent[NORM_MAP[j]] = "0"
-                            unnorm_x_dist[NORM_MAP[j]] = "0"
+                            # unnorm_x_dist[NORM_MAP[j]] = "0"
 
                 print("unnorm_x_cent:", unnorm_x_cent)
-                print("unnorm_x_dist:", unnorm_x_dist)
+                # print("unnorm_x_dist:", unnorm_x_dist)
 
             # if should_enforce_policy:
             #     if map_back_mode:
@@ -680,7 +782,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
                     return False
 
             if should_enforce_policy:
-                # logits, is_adversarial = a.forward_one(x)
+                logits, is_adversarial = a.forward_one(x)
                 if logging.getLogger().isEnabledFor(logging.DEBUG):
                     if targeted:
                         ce = crossentropy(a.original_class, logits)
@@ -696,33 +798,33 @@ class IterativeProjectedGradientBaseAttack(Attack):
                 if remote_model:
                     if map_back_mode:
                         prediction_remote_cent = predict(unnorm_x_cent, self._remote_model)[0]
-                        prediction_remote_dist = predict(unnorm_x_dist, self._remote_model)[0]
+                        # prediction_remote_dist = predict(unnorm_x_dist, self._remote_model)[0]
                     else:
                         prediction_remote = predict(unnorm_x, self._remote_model)[0]
                     prediction_original = predict(unnorm_unperturbed, self._remote_model)[0]
                     if map_back_mode:
                         prediction_local_cent = self._get_label(model.predict(np.array([x_cent]))[0])
-                        prediction_local_dist = self._get_label(model.predict(np.array([x_dist]))[0])
+                        # prediction_local_dist = self._get_label(model.predict(np.array([x_dist]))[0])
                     else:
                         prediction_local = self._get_label(model.predict(np.array([x]))[0])
 
                     if not only_post_process:
                         if map_back_mode:
-                            retrain_cnt_cent, retrain_cnt_dist = 0, 0
+                            retrain_cnt_cent = 0
                             print("Remote (cent): %s / local (cent): %s" %
                                   (prediction_remote_cent, prediction_local_cent))
-                            print("Remote (dist): %s / local (dist): %s" %
-                                  (prediction_remote_dist, prediction_local_dist))
+                            # print("Remote (dist): %s / local (dist): %s" %
+                            #       (prediction_remote_dist, prediction_local_dist))
                             while prediction_remote_cent != prediction_local_cent and retrain_cnt_cent < 10:
                                 retrain_cnt_cent += 1
                                 self._retrain_local_model(model, x_cent, LABLE[prediction_remote_cent])
                                 prediction_local = self._get_label(model.predict(np.array([x_cent]))[0])
                                 print("(cent) iter #%d, has retrained %d time(s)" % (i, retrain_cnt_cent))
-                            while prediction_remote_dist != prediction_local_dist and retrain_cnt_dist < 10:
-                                retrain_cnt_dist += 1
-                                self._retrain_local_model(model, x_dist, LABLE[prediction_remote_dist])
-                                prediction_local = self._get_label(model.predict(np.array([x_dist]))[0])
-                                print("(dist) iter #%d, has retrained %d time(s)" % (i, retrain_cnt_dist))
+                            # while prediction_remote_dist != prediction_local_dist and retrain_cnt_dist < 10:
+                            #     retrain_cnt_dist += 1
+                            #     self._retrain_local_model(model, x_dist, LABLE[prediction_remote_dist])
+                            #     prediction_local = self._get_label(model.predict(np.array([x_dist]))[0])
+                            #     print("(dist) iter #%d, has retrained %d time(s)" % (i, retrain_cnt_dist))
                         else:
                             retrain_cnt = 0
                             print("Remote: %s / local: %s" % (prediction_remote, prediction_local))
@@ -735,24 +837,24 @@ class IterativeProjectedGradientBaseAttack(Attack):
                     if map_back_mode:
                         if prediction_original == "AD" and prediction_remote_cent == "NONAD":
                             success_cent = True
-                        if prediction_original == "AD" and prediction_remote_dist == "NONAD":
-                            success_dist = True
+                        # if prediction_original == "AD" and prediction_remote_dist == "NONAD":
+                        #     success_dist = True
 
-                        if success_cent and not success_dist:
+                        if success_cent:
                             msg = "SUCCESS, centralized, iter_%d, %s, %s, %s" % (i, domain, url_id, str(diff))
                             print(msg)
                             logger.info(msg)
                             return True
-                        if not success_cent and success_dist:
-                            msg = "SUCCESS, distributed, iter_%d, %s, %s, %s" % (i, domain, url_id, str(diff))
-                            print(msg)
-                            logger.info(msg)
-                            return True
-                        if success_cent and success_dist:
-                            msg = "SUCCESS, both, iter_%d, %s, %s, %s" % (i, domain, url_id, str(diff))
-                            print(msg)
-                            logger.info(msg)
-                            return True
+                        # if not success_cent and success_dist:
+                        #     msg = "SUCCESS, distributed, iter_%d, %s, %s, %s" % (i, domain, url_id, str(diff))
+                        #     print(msg)
+                        #     logger.info(msg)
+                        #     return True
+                        # if success_cent:
+                        #     msg = "SUCCESS, both, iter_%d, %s, %s, %s" % (i, domain, url_id, str(diff))
+                        #     print(msg)
+                        #     logger.info(msg)
+                        #     return True
 
                         x = x_before_mapping_back
                     else:
@@ -1092,17 +1194,6 @@ class L2BasicIterativeAttack(
             soon as an adversarial is found.
         """
 
-        # a = input_or_adv
-        # del input_or_adv
-        # del label
-        # del unpack
-
-        # assert epsilon > 0
-
-        # self._run(a, binary_search,
-        #           epsilon, stepsize, iterations,
-        #           random_start, return_early)
-
     def _read_dataset(self, fname):
         import pandas as pd
         from sklearn.utils import shuffle
@@ -1210,7 +1301,9 @@ class ProjectedGradientDescentAttack(
                  request_id="URL_dummy",
                  model=None,
                  map_back_mode=False,
+                 feature_idx_map=None,
                  logger=None):
+        # input(feature_idx_map)
         """Simple iterative gradient-based attack known as
         Basic Iterative Method, Projected Gradient Descent or FGSM^k.
 
@@ -1267,7 +1360,7 @@ class ProjectedGradientDescentAttack(
                   perturbable_idx_set, only_increase_idx_set,
                   feature_defs, normalization_ratios,
                   enforce_interval, request_id,
-                  model, map_back_mode, logger)
+                  model, map_back_mode, feature_idx_map, logger)
 
 
 ProjectedGradientDescent = ProjectedGradientDescentAttack
