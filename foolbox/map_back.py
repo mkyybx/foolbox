@@ -7,7 +7,7 @@ import random
 # AS A EQUVALENCE OF WEBPAGE-SPACE)
 
 HOME_DIR = os.getenv("HOME")
-BASE_TIMELINE_DIR = '~/rendering_stream/'
+BASE_TIMELINE_DIR = HOME_DIR + '/rendering_stream/'
 BASE_DEF_DIR = HOME_DIR + "/attack-adgraph-pipeline/def/"
 
 TEST_MODE = 2
@@ -466,26 +466,6 @@ def compute_x_after_mapping_back(domain_url, url_id, modified_html, original_htm
         one_hot_encoded_x, encoded_feature_def, feature_stats, idx_to_feature_name_map)
     return np.array(normalized_x).astype(np.float), new_x
 
-
-# def compute_x_after_mapping_back_old(domain_url, url_id, modified_json, original_json_fname, working_dir, first_time=False):
-#     if first_time:
-#         run_cpp_feature_extractor(domain_url, working_dir, parse_modified=False)
-#     write_json(original_json_fname + '.modified', modified_json)
-#     run_cpp_feature_extractor(domain_url, working_dir)
-#     new_x = get_x_from_mappings(domain_url, url_id)
-
-#     unencoded_feature_def, encoded_feature_def, idx_to_feature_name_map = read_feature_def(
-#         BASE_DEF_DIR + "unnormalized_feature_idx.csv",
-#         BASE_DEF_DIR + "trimmed_wo_class_feature_idx.csv"
-#     )
-#     one_hot_encoded_x = one_hot_encode_x(
-#         new_x, unencoded_feature_def, encoded_feature_def)
-
-#     feature_stats = read_feature_stats(
-#         BASE_DEF_DIR + "col_stats_for_unnormalization.csv")
-#     normalized_x = normalize_x(
-#         one_hot_encoded_x, encoded_feature_def, feature_stats, idx_to_feature_name_map)
-#     return np.array(normalized_x).astype(np.float), new_x
 
 ####################
 # Mapback methods #

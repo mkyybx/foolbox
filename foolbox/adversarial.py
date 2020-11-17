@@ -307,7 +307,7 @@ class Adversarial(object):
 
         """
         in_bounds = self.in_bounds(x)
-        assert not strict or in_bounds
+        assert not strict or in_bounds, str(x.shape)
 
         self._total_prediction_calls += 1
         predictions = self.__model.forward_one(x)

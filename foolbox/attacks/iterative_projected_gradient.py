@@ -25,14 +25,14 @@ from ..distances import Distance
 from ..distances import MSE
 
 from ..map_back import modify_json
-# from ..map_back import get_file_names
 from ..map_back import compute_x_after_mapping_back
 from ..map_back import mapback
 
 from ..perturb_html import featureMapbacks
 
 from ..classify import predict
-from ..classify import setup_clf
+from ..classify import setup_clf, setup_one_hot
+from ..classify import read_one_hot_feature_list
 
 import matplotlib.pyplot as plt
 import math
@@ -42,12 +42,13 @@ from urllib.parse import urlsplit
 
 LABLE = {"AD": 1, "NONAD": 0}
 NORM_MAP = {
-    321: 59,
-    322: 60,
-    323: 61,
-    325: 63,
-    326: 64,
+    282: 59,
+    283: 60,
+    284: 61,
+    285: 63,
+    286: 64,
 }
+HOME_DIR = os.getenv("HOME")
 
 
 class IterativeProjectedGradientBaseAttack(Attack):
@@ -69,12 +70,25 @@ class IterativeProjectedGradientBaseAttack(Attack):
             return html_filename
 
         super(IterativeProjectedGradientBaseAttack, self).__init__(*args, **kwargs)
-        self.BASE_CRAWLED_DIR = "~/rendering_stream/html"
+        self.BASE_CRAWLED_DIR = HOME_DIR + "/rendering_stream/html"
         self.all_html_filepaths = os.listdir(self.BASE_CRAWLED_DIR)
-        self.BASE_MAPPING_DIR = "~/rendering_stream/mappings"
+        self.BASE_MAPPING_DIR = HOME_DIR + "/rendering_stream/mappings"
         self.all_mapping_filepaths = os.listdir(self.BASE_MAPPING_DIR)
-        self.BASE_TIMELINE_DIR = "~/rendering_stream/timeline"
+        self.BASE_TIMELINE_DIR = HOME_DIR + "/rendering_stream/timeline"
         self.all_timeline_filepaths = os.listdir(self.BASE_TIMELINE_DIR)
+        self.BASE_DATA_DIR = HOME_DIR + "/attack-adgraph-pipeline/data"
+        self.BASE_MODEL_DIR = HOME_DIR + "/attack-adgraph-pipeline/model"
+        self.original_dataset_fpath = self.BASE_DATA_DIR + '/dataset_1111.csv'
+
+        one_hot_feature_list = read_one_hot_feature_list(self.original_dataset_fpath)
+        events = sorted(list(one_hot_feature_list["FEATURE_NODE_CATEGORY"]))
+        tag_1 = sorted(list(one_hot_feature_list["FEATURE_FIRST_PARENT_TAG_NAME"]))
+        tag_2 = sorted(
+            list(one_hot_feature_list["FEATURE_FIRST_PARENT_SIBLING_TAG_NAME"]))
+        tag_3 = sorted(list(one_hot_feature_list["FEATURE_SECOND_PARENT_TAG_NAME"]))
+        tag_4 = sorted(
+            list(one_hot_feature_list["FEATURE_SECOND_PARENT_SIBLING_TAG_NAME"]))
+        setup_one_hot(events, tag_1, tag_2, tag_3, tag_4)
 
         self.url_to_timeline_fname_map = {}
         self.mapping = {}
@@ -367,7 +381,6 @@ class IterativeProjectedGradientBaseAttack(Attack):
                            random_start, targeted, class_, return_early, k,
                            perturbable_idx_set, only_increase_idx_set, feature_defs,
                            normalization_ratios, enforce_interval, request_id):
-
         factor = stepsize / epsilon
 
         def try_epsilon(epsilon):
@@ -442,7 +455,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
 
         return curr_html, filepath
 
-    def _get_x_after_mapping_back(self, domain, url_id, diff, working_dir="~/Desktop/AdGraphAPI/scripts", feature_idx_map=None, first_time=False):
+    def _get_x_after_mapping_back(self, domain, url_id, diff, working_dir="~/AdGraphAPI/scripts", feature_idx_map=None, first_time=False):
         reversed_feature_idx_map = self._reverse_a_map(feature_idx_map)
         if first_time:
             html, html_fname = self._read_curr_html(domain, read_modified=False)
@@ -516,35 +529,31 @@ class IterativeProjectedGradientBaseAttack(Attack):
                 ratio = feature_types[j]['val']
                 deprocessed_features.append(
                     deprocess_float_feature(features[j], ratio, ffloat=False))
-
-            if feature_types[j]['type'] == 'FF':
+            elif feature_types[j]['type'] == 'FF':
                 ratio = feature_types[j]['val']
                 deprocessed_features.append(
                     deprocess_float_feature(features[j], ratio, ffloat=True))
-
-            if feature_types[j]['type'] == 'C':
+            elif feature_types[j]['type'] == 'C':
                 category_name = feature_types[j]['val']
                 new_val = deprocess_nominal_feature(features[j], category_name)
-                if new_val:
+                if new_val is not None:
                     deprocessed_features.append(new_val)
-
-            if feature_types[j]['type'] == 'S':
+            elif feature_types[j]['type'] == 'S':
                 offset = feature_types[j]['val']
                 deprocessed_features.append(
                     deprocess_shift_feature(features[j], offset))
-
-            if feature_types[j]['type'] == 'B':
+            elif feature_types[j]['type'] == 'B':
                 val = features[j]
                 deprocessed_features.append(int(float(val)))
-
-            if feature_types[j]['type'] == 'D':
+            elif feature_types[j]['type'] == 'D':
                 val = features[j]
                 deprocessed_features.append(val)
-
             # label column
-            if feature_types[j]['type'] == 'L':
+            elif feature_types[j]['type'] == 'L':
                 label = features[j]
                 deprocessed_features.append(label)
+            else:
+                print("???")
 
         return deprocessed_features
 
@@ -721,8 +730,8 @@ class IterativeProjectedGradientBaseAttack(Attack):
                 try:
                     x_cent, unnorm_x_cent = self._get_x_after_mapping_back(
                         domain, url_id, diff, feature_idx_map=feature_idx_map, first_time=is_first_iter)
-                except Exception:
-                    print("Some error occured mapping!")
+                except Exception as err:
+                    print("Error occured mapping: %s" % err)
                     return False
                 # x_dist, unnorm_x_dist = self._get_x_after_mapping_back(
                 #     domain, url_id, diff, "distributed", feature_idx_map=feature_idx_map, first_time=is_first_iter)
@@ -1205,9 +1214,12 @@ class L2BasicIterativeAttack(
 
     # overriden init method in ABC
     def _initialize(self):
-        self._remote_model = setup_clf("/home/shitong/Desktop/attack-adgraph-pipeline/model/rf.pkl")
+        self._remote_model = setup_clf(
+            self.BASE_MODEL_DIR + "/rf.pkl"
+        )
         self._train_data_set = self._read_dataset(
-            "/home/shitong/Desktop/attack-adgraph-pipeline/data/hand_preprocessed_trimmed_label_train_gt_augmented_train_set.csv")
+            self.BASE_DATA_DIR + "/hand_preprocessed_trimmed_label_gt_augmented_train_set.csv"
+        )
 
     @call_decorator
     def __call__(self, input_or_adv, label=None, unpack=True,
@@ -1282,8 +1294,9 @@ class ProjectedGradientDescentAttack(
     # overriden init method in ABC
     def _initialize(self):
         self._remote_model = setup_clf("../model/rf.pkl")
+        self.BASE_DATA_DIR = HOME_DIR + "/attack-adgraph-pipeline/data"
         self._train_data_set = self._read_dataset(
-            "../data/hand_preprocessed_trimmed_label_train_gt_augmented_train_set.csv")
+            self.BASE_DATA_DIR + "/hand_preprocessed_trimmed_label_gt_augmented_train_set.csv")
 
     @call_decorator
     def __call__(self, input_or_adv, label=None, unpack=True,
