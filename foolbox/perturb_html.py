@@ -3,6 +3,8 @@
 import html
 import re
 import sys
+
+from fuzzywuzzy import fuzz
 from bs4 import BeautifulSoup
 
 # process features
@@ -12,9 +14,11 @@ requestURL = None
 
 
 def BSFilterByAnyString(tag):
-    # print(type(tag))
-    if requestURL in tag.attrs.values():
-        return tag
+    for attr_val in list(tag.attrs.values()):
+        if fuzz.ratio(attr_val, requestURL) > 90:
+            return tag
+    #if requestURL in tag.attrs.values():
+    #    return tag
 
 
 def addNodes(delta, mandatory=True):
@@ -181,14 +185,20 @@ def DecreaseFirstParentAverageDegreeConnectivity(delta):
         tag.append(newTag)
 
 
+def IncreaseURLLengt(delta):
+    global deltaNodes, soup
+    tag = soup.find(BSFilterByAnyString)
+    tag.attrs["src"] = tag.attrs["src"] + '*' * delta
+
+
 def featureMapbacks(name, html, url, delta=None):
     global deltaNodes, soup, requestURL
     deltaNodes = 0
     soup = html
-    # input(type(soup))
     requestURL = url
 
     before_mapback = str(soup)
+    print("Feature name: %s | %d" % (name, delta))
 
     if name == "FEATURE_GRAPH_NODES" or name == "FEATURE_GRAPH_EDGES":
         addNodes(delta)
@@ -220,23 +230,28 @@ def featureMapbacks(name, html, url, delta=None):
     elif name == "FEATURE_FIRST_PARENT_INBOUND_CONNECTIONS":
         if delta > 0:
             IncreaseFirstParentInboundConnections(delta)
-        else:
+        elif delta < 0:
             print("Invalid delta parameter.")
     elif name == "FEATURE_FIRST_PARENT_OUTBOUND_CONNECTIONS":
         if delta > 0:
             IncreaseFirstParentOutboundConnections(delta)
-        else:
+        elif delta < 0:
             print("Invalid delta parameter.")
     elif name == "FEATURE_FIRST_PARENT_INBOUND_OUTBOUND_CONNECTIONS":
         if delta > 0:
             IncreaseFirstParentInboundOutboundConnections(delta)
-        else:
+        elif delta < 0:
             print("Invalid delta parameter.")
     elif name == "FEATURE_FIRST_PARENT_AVERAGE_DEGREE_CONNECTIVITY":
         if delta > 0:
             IncreaseFirstParentAverageDegreeConnectivity(delta)
         elif delta < 0:
             DecreaseFirstParentAverageDegreeConnectivity(-1 * delta)
+    elif name == "FEATURE_URL_LENGTH":
+        if delta > 0:
+            IncreaseURLLength(delta)
+        elif delta < 0:
+            print("Invalid delta parameter.")
 
     after_mapback = str(soup)
     if before_mapback == after_mapback:

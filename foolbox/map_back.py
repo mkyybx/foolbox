@@ -66,20 +66,7 @@ def get_largest_fname(path, filter_keyword=[".modified", "parsed_"]):
             largest_size = os.path.getsize(fpath)
             largest_fname = fname
             largest_fpath = fpath
-    # input(largest_fname + largest_fpath)
     return largest_fname, largest_fpath
-
-
-# def get_file_names(domain):
-#     domain_data_dir = BASE_TIMELINE_DIR + "data/" + domain
-#     original_json_fname, original_json_fpath = get_largest_fname(
-#         domain_data_dir)
-#     original_json = read_json(original_json_fpath)
-#     url_id_map_fname = BASE_TIMELINE_DIR + "features/" + domain + '.csv'
-#     if not os.path.isfile(url_id_map_fname):
-#         generate_url_id_map_file(domain)
-#     url_id_map = read_features(url_id_map_fname)
-#     return original_json, original_json_fpath, url_id_map
 
 
 def generate_node_creation_event(node_id,
@@ -375,11 +362,6 @@ def one_hot_encode_x(x, unencoded_feature_def, encoded_feature_def):
         if i == len(x) - 1:
             continue
         if feature_name in CATEGORICAL_FEATURE_IDX:
-            # handle missing value
-            if x[i] == '':
-                # replace the missing value with a default value
-                # x[i] = list(encoded_feature_def[feature_name].keys())[0]
-                x[i] = "?"
             for j in range(len(encoded_feature_def[feature_name])):
                 if j == encoded_feature_def[feature_name][x[i]]:
                     encoded_x.append(float(1.0))
@@ -433,24 +415,31 @@ def get_x_from_features(domain, target_url_id):
     return x_lst
 
 
-def run_cpp_feature_extractor(domain_url, working_dir, parse_modified):
+def run_cpp_feature_extractor(domain_url, working_dir, parse_modified, browser_id):
     def execute_shell_command(cmd):
         os.system(cmd)
 
     cmd_lst = []
     cmd_lst.append("cd %s" % working_dir)
     if parse_modified:
-        cmd_lst.append("sh test.sh %s" % domain_url)
+        cmd_lst.append("sh test.sh %s parse-mod %d" % (domain_url, browser_id))
     else:
-        cmd_lst.append("sh test.sh %s parse-unmod" % domain_url)
+        cmd_lst.append("sh test.sh %s parse-unmod %d" % (domain_url, browser_id))
     cmd = ' && '.join(cmd_lst)
     print("Issuing shell command: " + cmd)
     execute_shell_command(cmd)
 
 
-def compute_x_after_mapping_back(domain_url, url_id, modified_html, original_html_fname, working_dir):
+def compute_x_after_mapping_back(
+    domain_url, 
+    url_id, 
+    modified_html, 
+    original_html_fname, 
+    working_dir,
+    browser_id
+):
     write_html(BASE_TIMELINE_DIR + 'html/' + 'modified_' + original_html_fname, modified_html)
-    run_cpp_feature_extractor(domain_url, working_dir, parse_modified=True)
+    run_cpp_feature_extractor(domain_url, working_dir, parse_modified=True, browser_id=browser_id)
     new_x = get_x_from_features(domain_url, url_id)
 
     unencoded_feature_def, encoded_feature_def, idx_to_feature_name_map = read_feature_def(
