@@ -485,7 +485,8 @@ class IterativeProjectedGradientBaseAttack(Attack):
                     delta=delta
                 )
             except AttributeError as err:
-                print("Could not find the element: %s" % str(err))
+                print("Could not find the element: %s; exiting" % str(err))
+                return False
 
             if new_html is None:
                 continue

@@ -6,6 +6,7 @@ import sys
 
 from fuzzywuzzy import fuzz
 from bs4 import BeautifulSoup
+from urllib.parse import urlparse
 
 # process features
 deltaNodes = 0  # # of edges should be equal to # of nodes
@@ -14,11 +15,54 @@ requestURL = None
 
 
 def BSFilterByAnyString(tag):
+    def parse_url(url):
+        components = urlparse(url)
+        scheme = components[0]
+        netloc = components[1]
+        path = components[2]
+        params = components[3]
+        query = components[4]
+        fragment = components[5]
+        return scheme, netloc, path, params, query, fragment
+
+    def is_same_request(url1, url2, strict=False):
+        scheme1, netloc1, path1, params1, query1, fragment1 = parse_url(url1)
+        scheme2, netloc2, path2, params2, query2, fragment2 = parse_url(url2)
+        if strict:
+            if scheme1 == scheme2 \
+                and netloc1 == netloc2 \
+                and path1 == path2 \
+                and params1 == params2 \
+                and query1 == query2:
+                    return True
+            else:
+                return False
+        else:
+            if netloc1 == netloc2 \
+                and path1 == path2:
+                    return True
+            else:
+                return False
+    
+    # Level1: Rather strict matching in inner text
+    scheme, netloc, path, params, query, fragment = parse_url(requestURL)
+    fuzzy_url = '/'.join([netloc, path])
+    if requestURL in tag.text:
+        return tag
+
+    # Following 2 ways are for attributes
     for attr_val in list(tag.attrs.values()):
-        if fuzz.ratio(attr_val, requestURL) > 90:
+        # Level2: URL component-level matching
+        if is_same_request(attr_val, requestURL, strict=False):
             return tag
-    #if requestURL in tag.attrs.values():
-    #    return tag
+
+        # Level3: URL fuzzy matching
+        if fuzzy_url in attr_val:
+            return tag
+
+        # Level4: Fuzzy matching
+        if fuzz.ratio(attr_val, requestURL) > 95:
+            return tag
 
 
 def addNodes(delta, mandatory=True):
