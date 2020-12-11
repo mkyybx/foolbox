@@ -6,11 +6,14 @@ import string
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 from fuzzywuzzy import fuzz
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse, urljoin
 
 # process features
 deltaNodes = 0  # # of edges should be equal to # of nodes
 soup = None
 requestURL = None
+baseURL = None
 
 adKeyWord = ["ad", "ads", "advert", "popup", "banner", "sponsor", "iframe", "googlead", "adsys", "adser",
              "advertise", "redirect", "popunder", "punder", "popout", "click", "track", "play", "pop", "prebid", "bid",
@@ -21,18 +24,87 @@ screenResolution = ["screenheight", "screenwidth", "browserheight", "browserwidt
                     "screen_param", "screenresolution", "browsertimeoffset"]
 
 
+def parse_url(url):
+    components = urlparse(url)
+    scheme = components[0]
+    netloc = components[1]
+    path = components[2]
+    params = components[3]
+    query = components[4]
+    fragment = components[5]
+    return scheme, netloc, path, params, query, fragment
+
+
+def is_same_request(url1, url2, strict=False):
+    scheme1, netloc1, path1, params1, query1, fragment1 = parse_url(url1)
+    scheme2, netloc2, path2, params2, query2, fragment2 = parse_url(url2)
+
+    if strict:
+        if scheme1 == scheme2 \
+            and netloc1 == netloc2 \
+            and path1 == path2 \
+            and params1 == params2 \
+            and query1 == query2:
+                return True
+        else:
+            return False
+    else:
+        if netloc1 == netloc2 \
+            and path1 == path2:
+                return True
+        else:
+            return False
+
+
 def BSFilterByAnyString(tag):
+    # Level1: Rather strict matching in inner text
+    scheme, netloc, path, params, query, fragment = parse_url(requestURL)
+    fuzzy_url = '/'.join([netloc, path])
+    
+    if requestURL in tag.text:
+        return tag
+
+    # Following 2 ways are for attributes
     for attr_val in list(tag.attrs.values()):
-        if fuzz.ratio(attr_val, requestURL) > 90:
+        if not isinstance(attr_val, str):
+            continue
+        if attr_val.startswith('/'):
+            attr_val = urljoin(baseURL, attr_val)
+
+        # Level2: URL component-level matching
+        if is_same_request(attr_val, requestURL, strict=False):
             return tag
-    # if requestURL in tag.attrs.values():
-    #    return tag
+
+        # Level3: URL fuzzy matching
+        if fuzzy_url in attr_val:
+            return tag
+
+        # Level4: Fuzzy matching
+        if fuzz.ratio(attr_val, requestURL) > 95:
+            return tag
 
 
 def getAttrByURL(tag):
-    for attr in list(tag.attrs.keys()):
-        if fuzz.ratio(tag.attrs[attr], requestURL) > 90:
-            return attr
+    scheme, netloc, path, params, query, fragment = parse_url(requestURL)
+    fuzzy_url = '/'.join([netloc, path])
+
+    for attr_key, attr_val in tag.attrs.items():
+        if not isinstance(attr_val, str):
+            continue
+        if attr_val.startswith('/'):
+            attr_val = urljoin(baseURL, attr_val)
+
+        # Level1: URL component-level matching
+        if is_same_request(attr_val, requestURL, strict=False):
+            return attr_key
+
+        # Level2: URL fuzzy matching
+        if fuzzy_url in attr_val:
+            return attr_key
+
+        # Level3: Fuzzy matching
+        if fuzz.ratio(attr_val, requestURL) > 95:
+            return attr_key
 
 
 def IncreaseURLLength(delta):
@@ -246,6 +318,8 @@ def wrapNodes(layers, tagName="span"):
         return
     for i in range(layers):
         tag = soup.find(BSFilterByAnyString)
+        if tag is None:
+            continue
         deltaNodes += 1
         newTag = soup.new_tag(tagName)
         tag.wrap(newTag)
@@ -394,18 +468,20 @@ def IncreaseURLLengt(delta):
 
 
 def featureMapbacks(name, html, url, delta=None, domain=None):
-    global deltaNodes, soup, requestURL
+    global deltaNodes, soup, requestURL, baseURL
     deltaNodes = 0
     soup = html
     requestURL = url
+    baseURL = domain
 
     before_mapback = str(soup)
-    print("Feature name: %s | %d" % (name, delta))
+    print("Feature name: %s | %s" % (name, str(delta)))
 
     if name == "FEATURE_GRAPH_NODES" or name == "FEATURE_GRAPH_EDGES":
         addNodes(delta)
     elif name == "FEATURE_INBOUND_OUTBOUND_CONNECTIONS":
-        addNodes(delta, False)
+        if delta != 0:
+            addNodes(delta, False)
     elif name == "FEATURE_ASCENDANTS_AD_KEYWORD":  # can only turn this feature from true to false
         wrapNodes(3)
     elif "FEATURE_FIRST_PARENT_TAG_NAME" in name:
