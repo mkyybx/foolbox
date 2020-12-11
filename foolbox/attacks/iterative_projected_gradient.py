@@ -24,9 +24,7 @@ from .. import nprng
 from ..distances import Distance
 from ..distances import MSE
 
-from ..map_back import modify_json
 from ..map_back import compute_x_after_mapping_back
-from ..map_back import mapback
 
 from ..perturb_html import featureMapbacks
 
@@ -39,14 +37,18 @@ import math
 
 import json
 from urllib.parse import urlsplit
+from urllib.parse import urlparse
 
 LABLE = {"AD": 1, "NONAD": 0}
 NORM_MAP = {
-    282: 59,
-    283: 60,
-    284: 61,
-    285: 63,
-    286: 64,
+    306: 59,
+    307: 60,
+    308: 61,
+    309: 63,
+    310: 64,
+    311: 65,
+    312: 66,
+    314: 68,
 }
 HOME_DIR = os.getenv("HOME")
 
@@ -72,14 +74,15 @@ class IterativeProjectedGradientBaseAttack(Attack):
         super(IterativeProjectedGradientBaseAttack, self).__init__(*args, **kwargs)
         
         self.BASE_CRAWLED_DIR = HOME_DIR + "/rendering_stream/html"
+        self.BASE_HTML_DIR = HOME_DIR + "/rendering_stream/html"
+        self.BASE_EVAL_HTML_DIR = HOME_DIR + "/rendering_stream/eval_html"
         self.all_html_filepaths = os.listdir(self.BASE_CRAWLED_DIR)
         self.BASE_MAPPING_DIR = HOME_DIR + "/rendering_stream/mappings"
-        self.all_mapping_filepaths = os.listdir(self.BASE_MAPPING_DIR)
         self.BASE_TIMELINE_DIR = HOME_DIR + "/rendering_stream/timeline"
-        self.all_timeline_filepaths = os.listdir(self.BASE_TIMELINE_DIR)
         self.BASE_DATA_DIR = HOME_DIR + "/attack-adgraph-pipeline/data"
         self.BASE_MODEL_DIR = HOME_DIR + "/attack-adgraph-pipeline/model"
-        self.original_dataset_fpath = self.BASE_DATA_DIR + '/dataset_1111.csv'
+        self.original_dataset_fpath = self.BASE_DATA_DIR + '/dataset_1203.csv'
+        self.final_domain_to_original_domain_mapping_fpath = HOME_DIR + "/map_local_list_unmod_new.csv"
 
         one_hot_feature_list = read_one_hot_feature_list(self.original_dataset_fpath)
         events = sorted(list(one_hot_feature_list["FEATURE_NODE_CATEGORY"]))
@@ -91,18 +94,17 @@ class IterativeProjectedGradientBaseAttack(Attack):
             list(one_hot_feature_list["FEATURE_SECOND_PARENT_SIBLING_TAG_NAME"]))
         setup_one_hot(events, tag_1, tag_2, tag_3, tag_4)
 
-        self.mapping = {}
-
-        for mapping_file in self.all_mapping_filepaths:
-            if mapping_file.endswith('.csv'):
-                domain = mapping_file.rstrip('.csv')
-                self.mapping[domain] = {}
-                with open(self.BASE_MAPPING_DIR + '/' + mapping_file, 'r') as fin:
-                    data = fin.readlines()
-                for row in data:
-                    row = row.strip()
-                    url_id, url = row.split(',', 1)
-                    self.mapping[domain][url_id] = url
+        self.final_domain_to_original_domain_mapping = {}
+        self.original_domain_to_final_domain_mapping = {}
+        
+        with open(self.final_domain_to_original_domain_mapping_fpath, 'r') as fin:
+            data = fin.readlines()
+        for row in data:
+            row = row.strip()
+            original_domain, final_url = row.split(',', 1)
+            final_domain = urlparse(final_url)[1]
+            self.final_domain_to_original_domain_mapping[final_domain] = original_domain
+            self.original_domain_to_final_domain_mapping[original_domain] = final_domain
 
     @abstractmethod
     def _gradient(self, a, x, class_, strict=True):
@@ -153,72 +155,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
 
     def _calculate_diff(self, ori, per, stats):
         return self._unscale_feature(per, stats) - self._unscale_feature(ori, stats)
-
-    def _recalculate_related_features(self, candidate,
-                                      original,
-                                      normalization_ratios,
-                                      perturbable_idx_set,
-                                      debug=False):
-
-        recalculated_candidate = np.copy(candidate)
-
-        should_process_global_ratio = False
-        should_process_connection_cnt = False
-        should_match_edge_to_node = False
-        should_process_sibling_cnt = False
-
-        if perturbable_idx_set is not None and normalization_ratios is not None:
-            if 0 in perturbable_idx_set or 1 in perturbable_idx_set:
-                should_process_global_ratio = True
-            if 0 in perturbable_idx_set and 1 not in perturbable_idx_set:
-                should_match_edge_to_node = True
-            if 4 in perturbable_idx_set or 5 in perturbable_idx_set:
-                should_process_connection_cnt = True
-            if 22 in perturbable_idx_set:
-                should_process_sibling_cnt = True
-
-        if should_process_sibling_cnt:
-            sibling_cnt_diff = self._calculate_diff(
-                original[22], recalculated_candidate[22], normalization_ratios[22]['val'])
-            node_cnt_diff = self._calculate_diff(original[0], recalculated_candidate[0], normalization_ratios[0]['val'])
-            if node_cnt_diff <= sibling_cnt_diff:
-                recalculated_candidate[0] += self._rescale_feature(sibling_cnt_diff, normalization_ratios[22]['val'])
-
-        if should_process_connection_cnt:
-            original_5th_feature = self._unscale_feature(
-                recalculated_candidate[4], normalization_ratios[4]['val'], False)
-            original_6th_feature = self._unscale_feature(
-                recalculated_candidate[5], normalization_ratios[5]['val'], False)
-            recalculated_candidate[6] = self._rescale_feature(
-                original_5th_feature + original_6th_feature, normalization_ratios[6]['val'])
-
-        if should_match_edge_to_node:
-            node_cnt_diff = self._calculate_diff(original[0], recalculated_candidate[0], normalization_ratios[0]['val'])
-            recalculated_candidate[1] += self._rescale_feature(node_cnt_diff, normalization_ratios[1]['val'])
-
-        if should_process_global_ratio:
-            original_1st_feature = self._unscale_feature(
-                recalculated_candidate[0], normalization_ratios[0]['val'], False)
-            original_2nd_feature = self._unscale_feature(
-                recalculated_candidate[1], normalization_ratios[1]['val'], False)
-            if original_1st_feature != 0.0 and original_2nd_feature != 0.0:
-                recalculated_candidate[2] = self._rescale_feature(
-                    original_1st_feature / original_2nd_feature, normalization_ratios[2]['val'])
-                recalculated_candidate[3] = self._rescale_feature(
-                    original_2nd_feature / original_1st_feature, normalization_ratios[3]['val'])
-            if debug:
-                print("original_1st_feature:", original_1st_feature)
-                print("original_2nd_feature:", original_2nd_feature)
-                print("recalculated_candidate[2]", recalculated_candidate[2])
-                print("recalculated_candidate[3]", recalculated_candidate[3])
-                print("normalization_ratios[3]['val']", normalization_ratios[3]['val'])
-                print("normalization_ratios[2]['val']", normalization_ratios[2]['val'])
-                print("original_2nd_feature / original_1st_feature", original_2nd_feature / original_1st_feature)
-                print("float(original_2nd_feature / original_1st_feature)",
-                      float(original_2nd_feature / original_1st_feature))
-
-        return recalculated_candidate
-
+    
     def _reject_imperturbable_features(self, candidate,
                                        original, perturbable_idx_set,
                                        debug=False):
@@ -433,28 +370,48 @@ class IterativeProjectedGradientBaseAttack(Attack):
         return reversed
 
     def _read_curr_html(self, domain, read_modified):
-        curr_html = None
-        for filepath in self.all_html_filepaths:
-            if domain in filepath:
-                if read_modified:
-                    if 'modified' in filepath:
-                        with open(self.BASE_CRAWLED_DIR + "/" + filepath, "r") as fin:
-                            curr_html = BeautifulSoup(fin, features="html.parser")
-                            break
-                else:
-                    if 'modified' not in filepath:
-                        with open(self.BASE_CRAWLED_DIR + "/" + filepath, "r") as fin:
-                            curr_html = BeautifulSoup(fin, features="html.parser")
-                            break
-        if curr_html is None:
-            print("[FATAL] HTML file not found!")
-            raise Exception
+        print("Reading HTML: %s" % domain)
+        if read_modified:
+            with open(self.BASE_CRAWLED_DIR + "/modified_" + domain + '.html', "r") as fin:
+                curr_html = BeautifulSoup(fin, features="html.parser")
+        else:
+            with open(self.BASE_CRAWLED_DIR + "/" + domain + '.html', "r") as fin:
+                curr_html = BeautifulSoup(fin, features="html.parser")
+        
+        return curr_html, domain + '.html'
+    
+    def _get_url_from_url_id(
+        self,
+        final_domain,
+        target_url_id
+    ):
+        with open(self.BASE_MAPPING_DIR + '/' + self.final_domain_to_original_domain_mapping[final_domain] + '.csv') as fin:
+            data = fin.readlines()
+            for row in data:
+                row = row.strip()
+                url_id, url = row.split(',', 1)
+                if url_id == target_url_id:
+                    return url
+        return None
 
-        return curr_html, filepath
+    def _read_url_id_to_url_mapping(
+        self,
+        final_domain
+    ):
+        url_id_to_url_mapping = {}
+        with open(self.BASE_MAPPING_DIR + '/' + self.final_domain_to_original_domain_mapping[final_domain] + '.csv') as fin:
+            data = fin.readlines()
+            for row in data:
+                row = row.strip()
+                url_id, url = row.split(',', 1)
+                url_id_to_url_mapping[url_id] = url
+        return url_id_to_url_mapping
+
 
     def _get_x_after_mapping_back(
         self, 
-        domain, 
+        domain,
+        final_domain,
         url_id, 
         diff,
         browser_id,
@@ -463,30 +420,31 @@ class IterativeProjectedGradientBaseAttack(Attack):
         first_time=False
     ):
         reversed_feature_idx_map = self._reverse_a_map(feature_idx_map)
+        html, html_fname = self._read_curr_html(domain, read_modified=False)
+        
         if first_time:
-            html, html_fname = self._read_curr_html(domain, read_modified=False)
-        else:
-            html, html_fname = self._read_curr_html(domain, read_modified=False)
+            if not os.path.isfile(self.BASE_TIMELINE_DIR + '/' + domain + '.json'):
+                cmd = "python3 ~/AdGraphAPI/scripts/load_page_adgraph.py --domain %s --id %s --final-domain %s --mode proxy" % (domain, browser_id, final_domain)
+                os.system(cmd)
+            cmd = "python ~/AdGraphAPI/scripts/rules_parser.py --target-dir ~/rendering_stream/timeline --domain %s" % domain
+            os.system(cmd)
+            cmd = "~/AdGraphAPI/adgraph ~/rendering_stream/ features/ mappings/ %s parsed_%s" % (domain, domain)
+            os.system(cmd)
+            self._url_id_to_url_mapping = self._read_url_id_to_url_mapping(final_domain)
 
-        #try:
-        url = self.mapping[domain][url_id]
-        #except KeyError:
-            #url = "dummy.com/dummy.js"
+        url = self._url_id_to_url_mapping[url_id]
 
         at_least_one_diff_success = False
         new_html = None
 
         for feature_id, delta in diff.items():
-            try:
-                new_html = featureMapbacks(
-                    name=reversed_feature_idx_map[feature_id], 
-                    html=html, 
-                    url=url, 
-                    delta=delta
-                )
-            except AttributeError as err:
-                print("Could not find the element: %s; exiting" % str(err))
-                return False
+            new_html = featureMapbacks(
+                name=reversed_feature_idx_map[feature_id], 
+                html=html, 
+                url=url, 
+                delta=delta,
+                domain=final_domain
+            )
 
             if new_html is None:
                 continue
@@ -500,10 +458,16 @@ class IterativeProjectedGradientBaseAttack(Attack):
 
         # Write back to HTML file after circulating all outstanding perturbations in this iteration
         mapped_x, mapped_unnormalized_x = compute_x_after_mapping_back(
-            domain, url_id, html, html_fname, working_dir=working_dir, browser_id=browser_id
+            domain, 
+            url_id, 
+            html, 
+            html_fname, 
+            working_dir=working_dir, 
+            browser_id=browser_id, 
+            final_domain=final_domain
         )
 
-        return mapped_x, mapped_unnormalized_x
+        return mapped_x, mapped_unnormalized_x, url
 
     def _deprocess_x(self, x, feature_types, verbal=False):
         FEATURE_TYPES = {'F', 'B', 'C', 'S', 'D', 'L', 'FF'}
@@ -617,7 +581,8 @@ class IterativeProjectedGradientBaseAttack(Attack):
             x_axis, y_l2, y_lf = [], [], []
 
         domain, url_id = request_id.split(',')
-        domain = domain.split('/')[-1].replace('.html', '')
+        final_domain = urlparse(domain)[1]
+        original_domain = self.final_domain_to_original_domain_mapping[final_domain]
 
         min_, max_ = a.bounds()
         s = max_ - min_
@@ -721,12 +686,13 @@ class IterativeProjectedGradientBaseAttack(Attack):
                     normalization_ratios,
                 )
                 print("Delta at iter #%d: %s" % (i, str(diff)))
-                print("Domain: %s" % domain)
+                print("Domain: %s" % original_domain)
                 print("URL ID: %s" % url_id)
                 x_before_mapping_back = x.copy()
                 try:
-                    x_cent, unnorm_x_cent = self._get_x_after_mapping_back(
-                        domain, 
+                    x_cent, unnorm_x_cent, url = self._get_x_after_mapping_back(
+                        original_domain, 
+                        final_domain,
                         url_id, 
                         diff, 
                         browser_id=browser_id, 
@@ -754,7 +720,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
                 print("unnorm_x_cent:", unnorm_x_cent)
                 mapping_diff = self._get_diff(
                     x_cent,
-                    x,
+                    original,
                     perturbable_idx_set,
                     normalization_ratios,
                 )
@@ -828,9 +794,21 @@ class IterativeProjectedGradientBaseAttack(Attack):
                             success_cent = True
 
                         if success_cent:
-                            msg = "SUCCESS, centralized, iter_%d, %s, %s, %s" % (i, domain, url_id, str(diff))
+                            msg = "SUCCESS, iter_%d, %s, %s, %s, %s, %s" % (i, original_domain, final_domain, str(mapping_diff), url_id, url)
                             print(msg)
                             logger.info(msg)
+
+                            cmd = "cp %s %s" % (
+                                self.BASE_HTML_DIR + '/' + original_domain + '.html',
+                                self.BASE_EVAL_HTML_DIR + '/original_' + original_domain + '.html'
+                            )
+                            os.system(cmd)
+
+                            cmd = "cp %s %s" % (
+                                self.BASE_HTML_DIR + '/modified_' + original_domain + '.html',
+                                self.BASE_EVAL_HTML_DIR + '/' + original_domain + '_' + url_id + '.html'
+                            )
+                            os.system(cmd)
                             return True
 
                         x = x_before_mapping_back
@@ -844,7 +822,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
             plt.plot(x_axis, y_l2, linewidth=3)
             plt.plot(x_axis, y_lf, linewidth=3)
             plt.show()
-        msg = "FAIL: iter_%d, %s, %s, %s" % (i, domain, url_id, str(diff))
+        msg = "FAIL, iter_%d, %s, %s, %s, %s, %s" % (i, original_domain, final_domain, str(mapping_diff), url_id, url)
         print(msg)
         logger.info(msg)
         return False
