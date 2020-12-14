@@ -2,7 +2,7 @@
 
 import random
 import re
-import string
+import sys
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 from fuzzywuzzy import fuzz
@@ -108,11 +108,12 @@ def getAttrByURL(tag):
 
 
 def IncreaseURLLength(delta):
+    tag = soup.find(BSFilterByAnyString)
+    attr = getAttrByURL(tag)
+
     if delta < 0:
         print("changeNodes with delta < 0!")
         return
-    tag = soup.find(BSFilterByAnyString)
-    attr = getAttrByURL(tag)
     for i in range(delta):
         tag.attrs[attr] += "#"
 
@@ -562,3 +563,16 @@ def featureMapbacks(name, html, url, delta=None, domain=None):
         print("Modification occured!")
 
     return soup
+
+if __name__ == "__main__":
+    html_file = sys.argv[1]
+    # initiate BS
+    with open(html_file) as page:
+        soup = BeautifulSoup(page, features="html.parser")
+    requestURL = html.unescape("http://www.123.google.com.www.google.com/imghp?hl=en&amp;tab=wi&amp;screen_res=640x480&amp;domain=google.com")
+    # process features
+    deltaNodes = 0  # # of edges should be equal to # of nodes
+    featureMapbacks("FEATURE_URL_LENGTH", soup, requestURL, 10)
+    # output result
+    of = open("output.html", mode="wb")
+    of.write(soup.prettify().encode("utf-8"))
