@@ -13,7 +13,7 @@ deltaNodes = 0  # # of edges should be equal to # of nodes
 soup = None
 requestURL = None
 baseURL = None
-# TODO: REMOVE GOOGLE
+
 adKeyWord = ["ad", "ads", "advert", "popup", "banner", "sponsor", "iframe", "googlead", "adsys", "adser",
              "advertise", "redirect", "popunder", "punder", "popout", "click", "track", "play", "pop", "prebid", "bid",
              "pb.min", "affiliate", "ban", "delivery", "promo", "tag", "zoneid", "siteid", "pageid", "size", "viewid",
