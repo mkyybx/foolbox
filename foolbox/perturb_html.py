@@ -3,11 +3,10 @@
 import random
 import re
 import string
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from urllib.parse import parse_qs, urlencode, urlunparse
+from urllib.parse import urlparse, urljoin
 
 from fuzzywuzzy import fuzz
-from bs4 import BeautifulSoup
-from urllib.parse import urlparse, urljoin
 
 # process features
 deltaNodes = 0  # # of edges should be equal to # of nodes
@@ -41,17 +40,17 @@ def is_same_request(url1, url2, strict=False):
 
     if strict:
         if scheme1 == scheme2 \
-            and netloc1 == netloc2 \
-            and path1 == path2 \
-            and params1 == params2 \
-            and query1 == query2:
-                return True
+                and netloc1 == netloc2 \
+                and path1 == path2 \
+                and params1 == params2 \
+                and query1 == query2:
+            return True
         else:
             return False
     else:
         if netloc1 == netloc2 \
-            and path1 == path2:
-                return True
+                and path1 == path2:
+            return True
         else:
             return False
 
@@ -60,7 +59,7 @@ def BSFilterByAnyString(tag):
     # Level1: Rather strict matching in inner text
     scheme, netloc, path, params, query, fragment = parse_url(requestURL)
     fuzzy_url = '/'.join([netloc, path])
-    
+
     if requestURL in tag.text:
         return tag
 
@@ -107,26 +106,40 @@ def getAttrByURL(tag):
             return attr_key
 
 
-def IncreaseURLLength(delta):
-    if delta < 0:
-        print("changeNodes with delta < 0!")
-        return
+def ModifyURLLength(delta):
     tag = soup.find(BSFilterByAnyString)
     attr = getAttrByURL(tag)
-    for i in range(delta):
-        tag.attrs[attr] += "#"
+
+    if delta < 0:
+        schemaDomainStr = splitHostAndPath(tag.attrs[attr])[0] + "/"
+        targetLen = len(tag.attrs[attr]) + delta
+        if targetLen < len(schemaDomainStr) + 10:
+            targetLen = len(schemaDomainStr) + 10
+        tag.attrs[attr] = tag.attrs[attr][:targetLen]
+    else:
+        for i in range(delta):
+            tag.attrs[attr] += "#"
+
+
+def splitHostAndPath(str):
+    urlParts = urlparse(str)
+    urlPartsList = list(urlParts)
+    schemaDomainStr = urlPartsList[0] + "://" + urlPartsList[1]
+    remainingStr = str[len(schemaDomainStr):]
+    return [schemaDomainStr, remainingStr]  # ["http://xx.xx.xx" , "/xyz?a=b"]
 
 
 # All of the following "Replacing" would replace with random chars. The server may parse the URL dynamically
 def ModifyADKeyword(add):
     tag = soup.find(BSFilterByAnyString)
     attr = getAttrByURL(tag)
+    hostPathArray = splitHostAndPath(tag.attrs[attr])
     if add == -1:
         for adWord in adKeyWord:
             randStr = ""
             for _ in adWord:
                 randStr += random.choice(string.ascii_lowercase)
-            tag.attrs[attr] = tag.attrs[attr].replace(adWord, randStr)
+            tag.attrs[attr] = hostPathArray[0] + hostPathArray[1].replace(adWord, randStr)
     elif add == 1:
         tag.attrs[attr] += "#" + random.choice(adKeyWord)
 
@@ -135,11 +148,13 @@ def ModifyADKeyword(add):
 def ModifyADKeyChar(add):
     tag = soup.find(BSFilterByAnyString)
     attr = getAttrByURL(tag)
+    hostPathArray = splitHostAndPath(tag.attrs[attr])
     if add == -1:
         for adWord in adKeyWord:
             for adChar in adKeyChar:
                 combinedStr = adChar + adWord
-                tag.attrs[attr] = tag.attrs[attr].replace(combinedStr, random.choice(string.ascii_lowercase) + adWord)
+                tag.attrs[attr] = hostPathArray[0] + hostPathArray[1].replace(combinedStr, random.choice(
+                    string.ascii_lowercase) + adWord)
     elif add == 1:
         tag.attrs[attr] += "#?" + random.choice(adKeyWord)
 
@@ -204,8 +219,9 @@ def ModifyBaseDomainQueryString(add, domain):
 def ModifyScreenDimensionInBaseURL(add):
     tag = soup.find(BSFilterByAnyString)
     attr = getAttrByURL(tag)
+    hostPathArray = splitHostAndPath(tag.attrs[attr])
     if add == -1:
-        tag.attrs[attr] = ReplaceX(tag.attrs[attr])
+        tag.attrs[attr] = hostPathArray[0] + ReplaceX(hostPathArray[1])
     elif add == 1:
         tag.attrs[attr] += "#" + str(random.randint(0, 10000)) + "x" + str(random.randint(0, 10000))
 
@@ -244,15 +260,17 @@ def ModifyScreenDimensionKeywordInQS(add):
             tag.attrs[attr] += "&" + random.choice(screenResolution) + "=" + random.choice(string.ascii_lowercase)
         else:
             tag.attrs[attr] += "?" + random.choice(screenResolution) + "=" + random.choice(string.ascii_lowercase)
-    print(tag)
 
 
 def ReplaceX(text):
     splitedStr = re.split("\\d{2,4}[xX_-]\\d{2,4}", text)
     matchedStr = re.findall("\\d{2,4}[xX_-]\\d{2,4}", text)
     text = ""
+    randomstr = 'x'
+    while randomstr == 'x':
+        randomstr = random.choice(string.ascii_lowercase)
     for i in range(len(matchedStr)):
-        replacingStr = re.sub("[xX_-]", random.choice(string.ascii_lowercase), matchedStr[i])
+        replacingStr = re.sub("[xX_-]", randomstr, matchedStr[i])
         text += splitedStr[i] + replacingStr
     # if len(matchedStr) > 0:
     text += splitedStr[len(splitedStr) - 1]
@@ -263,10 +281,11 @@ def ModifyHostName(setToBaseDomain, baseDomain):
     tag = soup.find(BSFilterByAnyString)
     attr = getAttrByURL(tag)
     if setToBaseDomain == 1:
-        urlParts = urlparse(tag.attrs[attr])
-        urlPartsList = list(urlParts)
-        urlPartsList[1] = baseDomain
-        tag.attrs[attr] = urlunparse(urlPartsList)
+        # urlParts = urlparse(tag.attrs[attr])
+        # urlPartsList = list(urlParts)
+        # urlPartsList[1] = baseDomain
+        # tag.attrs[attr] = urlunparse(urlPartsList)
+        print("Will not modify domain name now, though requested.")
     elif setToBaseDomain == -1:
         urlParts = urlparse(tag.attrs[attr])
         urlPartsList = list(urlParts)
@@ -275,25 +294,23 @@ def ModifyHostName(setToBaseDomain, baseDomain):
 
 
 def ModifyHostNameWithSubDomain(addSubdomain, baseDomain):
-    tag = soup.find(BSFilterByAnyString)
-    attr = getAttrByURL(tag)
-    if addSubdomain == 1:
-        urlParts = urlparse(tag.attrs[attr])
-        urlPartsList = list(urlParts)
-        urlPartsList[1] = baseDomain + "." + urlPartsList[1]
-        tag.attrs[attr] = urlunparse(urlPartsList)
-    elif addSubdomain == -1:
-        urlParts = urlparse(tag.attrs[attr])
-        urlPartsList = list(urlParts)
-        # Trim the domain
-        if baseDomain.startswith("www."):
-            baseDomain = baseDomain[4:]
-        urlPartsList[1] = urlPartsList[1].replace(baseDomain + ".", "").replace("." + baseDomain, "").replace(
-            baseDomain, "")
-        tag.attrs[attr] = urlunparse(urlPartsList)
-
-    print(tag)
-
+    # tag = soup.find(BSFilterByAnyString)
+    # attr = getAttrByURL(tag)
+    # if addSubdomain == 1:
+    #     urlParts = urlparse(tag.attrs[attr])
+    #     urlPartsList = list(urlParts)
+    #     urlPartsList[1] = baseDomain + "." + urlPartsList[1]
+    #     tag.attrs[attr] = urlunparse(urlPartsList)
+    # elif addSubdomain == -1:
+    #     urlParts = urlparse(tag.attrs[attr])
+    #     urlPartsList = list(urlParts)
+    #     # Trim the domain
+    #     if baseDomain.startswith("www."):
+    #         baseDomain = baseDomain[4:]
+    #     urlPartsList[1] = urlPartsList[1].replace(baseDomain + ".", "").replace("." + baseDomain, "").replace(
+    #         baseDomain, "")
+    #     tag.attrs[attr] = urlunparse(urlPartsList)
+    print("Will not modify subdomain name now, though requested.")
 
 def addNodes(delta, mandatory=True):
     global deltaNodes, soup
@@ -530,10 +547,10 @@ def featureMapbacks(name, html, url, delta=None, domain=None):
     # TODO: lack ctx info for QS and URL length. We can add it if we know we are modifying the features of the same webpage. We know for sure some features would change if modifying other features
 
     elif name == "FEATURE_URL_LENGTH":
-        if delta > 0:
-            IncreaseURLLength(delta)
-        elif delta < 0:
-            print("Invalid delta parameter.")
+        # if delta > 0:
+        ModifyURLLength(delta)
+        # elif delta < 0:
+        #     print("Invalid delta parameter.")
     elif name == "FEATURE_AD_KEYWORD":
         ModifyADKeyword(delta)
     elif name == "FEATURE_SPECIAL_CHAR_AD_KEYWORD":
