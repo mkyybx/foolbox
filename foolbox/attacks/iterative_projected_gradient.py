@@ -41,14 +41,16 @@ from urllib.parse import urlparse
 
 LABLE = {"AD": 1, "NONAD": 0}
 NORM_MAP = {
-    306: 59,
-    307: 60,
-    308: 61,
-    309: 63,
-    310: 64,
-    311: 65,
-    312: 66,
-    314: 68,
+    301: 59,
+    302: 60,
+    303: 61,
+    304: 62,
+    305: 63,
+    306: 64,
+    307: 65,
+    309: 67,
+    310: 68,
+    311: 69,
 }
 HOME_DIR = os.getenv("HOME")
 
@@ -433,12 +435,13 @@ class IterativeProjectedGradientBaseAttack(Attack):
             self._url_id_to_url_mapping = self._read_url_id_to_url_mapping(final_domain)
 
         url = self._url_id_to_url_mapping[url_id]
+        original_url = url
 
         at_least_one_diff_success = False
         new_html = None
 
         for feature_id, delta in diff.items():
-            new_html = featureMapbacks(
+            new_html, modified_url = featureMapbacks(
                 name=reversed_feature_idx_map[feature_id], 
                 html=html, 
                 url=url, 
@@ -450,6 +453,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
                 continue
             else:
                 html = new_html
+                url = modified_url
                 at_least_one_diff_success = True
 
         if not at_least_one_diff_success:
@@ -467,7 +471,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
             final_domain=final_domain
         )
 
-        return mapped_x, mapped_unnormalized_x, url
+        return mapped_x, mapped_unnormalized_x, original_url, url
 
     def _deprocess_x(self, x, feature_types, verbal=False):
         FEATURE_TYPES = {'F', 'B', 'C', 'S', 'D', 'L', 'FF'}
@@ -690,7 +694,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
                 print("URL ID: %s" % url_id)
                 x_before_mapping_back = x.copy()
                 try:
-                    x_cent, unnorm_x_cent, url = self._get_x_after_mapping_back(
+                    x_cent, unnorm_x_cent, original_url, url = self._get_x_after_mapping_back(
                         original_domain, 
                         final_domain,
                         url_id, 
@@ -705,7 +709,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
                 is_first_iter = False
 
                 del unnorm_x_cent[-1]  # remove label
-
+                
                 for j in range(len(x_cent)):
                     if j in diff:
                         if j not in NORM_MAP:
@@ -794,7 +798,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
                             success_cent = True
 
                         if success_cent:
-                            msg = "SUCCESS, iter_%d, %s, %s, %s, %s, %s" % (i, original_domain, final_domain, str(mapping_diff), url_id, url)
+                            msg = "SUCCESS, iter_%d, %s, %s, %s, %s, %s, %s" % (i, original_domain, final_domain, str(mapping_diff), url_id, original_url, url)
                             print(msg)
                             logger.info(msg)
 
@@ -822,7 +826,7 @@ class IterativeProjectedGradientBaseAttack(Attack):
             plt.plot(x_axis, y_l2, linewidth=3)
             plt.plot(x_axis, y_lf, linewidth=3)
             plt.show()
-        msg = "FAIL, iter_%d, %s, %s, %s, %s, %s" % (i, original_domain, final_domain, str(mapping_diff), url_id, url)
+        msg = "FAIL, iter_%d, %s, %s, %s, %s, %s, %s" % (i, original_domain, final_domain, str(mapping_diff), url_id, original_url, url)
         print(msg)
         logger.info(msg)
         return False
