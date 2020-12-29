@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-
 import random
 import re
 import string
 from urllib.parse import parse_qs, urlencode, urlunparse
 from urllib.parse import urlparse, urljoin
 
+import bs4
 from fuzzywuzzy import fuzz
 
 # process features
@@ -14,6 +14,7 @@ soup = None
 requestURL = None
 baseURL = None
 modifiedRequestURL = None
+tagCount = 0
 
 adKeyWord = ["ad", "ads", "advert", "popup", "banner", "sponsor", "iframe", "googlead", "adsys", "adser",
              "advertise", "redirect", "popunder", "punder", "popout", "click", "track", "play", "pop", "prebid", "bid",
@@ -22,6 +23,8 @@ adKeyWord = ["ad", "ads", "advert", "popup", "banner", "sponsor", "iframe", "goo
 adKeyChar = [".", "/", "&", "=", ";", "-", "_", "/", "*", "^", "?", ";", "|", ","]
 screenResolution = ["screenheight", "screenwidth", "browserheight", "browserwidth", "screendensity", "screen_res",
                     "screen_param", "screenresolution", "browsertimeoffset"]
+# We won't add empty nodes under parents nodes with these name since it may cause error
+blackListedTags = ["script", "html", "head", "body"]
 
 
 def parse_url(url):
@@ -329,7 +332,29 @@ def ModifyHostNameWithSubDomain(addSubdomain, baseDomain):
     #     tag.attrs[attr] = urlunparse(urlPartsList)
     print("Will not modify subdomain name now, though requested.")
 
-def addNodes(delta, mandatory=True):
+
+def getTagCount():
+    global tagCount
+    tagCount = 0
+    t = soup.head
+    while t:
+        if isinstance(t, bs4.element.Tag) and t.name not in blackListedTags:
+            tagCount += 1
+        t = t.next_element
+
+
+def getRandomNode():
+    getTagCount()
+    targetTag = int(tagCount * random.random())
+    t = soup.head
+    for i in range(targetTag):
+        t = t.next_element
+        while t.name in blackListedTags:
+            t = t.next_element
+    return t
+
+
+def addNodes(delta, mandatory=True, strategy="Centralized"):
     global deltaNodes, soup
     if delta < 0:
         print("changeNodes with delta < 0!")
@@ -342,7 +367,10 @@ def addNodes(delta, mandatory=True):
         deltaNodes += 1
         newTag = soup.new_tag('p')
         newTag.attrs["hidden"] = ""
-        tag.insert_after(newTag)
+        if strategy == "Centralized":
+            tag.insert_after(newTag)
+        elif strategy == "Distributed":
+            getRandomNode().insert_after(newTag)
 
 
 def wrapNodes(layers, tagName="span"):
@@ -501,7 +529,7 @@ def IncreaseURLLength(delta):
     tag.attrs["src"] = tag.attrs["src"] + '*' * delta
 
 
-def featureMapbacks(name, html, url, delta=None, domain=None):
+def featureMapbacks(name, html, url, delta=None, domain=None, strategy="Centralized"):
     global deltaNodes, soup, requestURL, baseURL, modifiedRequestURL
     deltaNodes = 0
     soup = html
@@ -510,11 +538,11 @@ def featureMapbacks(name, html, url, delta=None, domain=None):
     baseURL = domain
 
     before_mapback = str(soup)
-    #print("URL to find: %s" % url)
+    # print("URL to find: %s" % url)
     print("Feature name: %s | %s" % (name, str(delta)))
 
     if name == "FEATURE_GRAPH_NODES" or name == "FEATURE_GRAPH_EDGES":
-        addNodes(delta)
+        addNodes(delta, True, strategy)
     elif name == "FEATURE_INBOUND_OUTBOUND_CONNECTIONS":
         if delta != 0:
             addNodes(delta, False)
