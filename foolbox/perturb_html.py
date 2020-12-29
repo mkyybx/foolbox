@@ -13,6 +13,7 @@ deltaNodes = 0  # # of edges should be equal to # of nodes
 soup = None
 requestURL = None
 baseURL = None
+modifiedRequestURL = None
 
 adKeyWord = ["ad", "ads", "advert", "popup", "banner", "sponsor", "iframe", "googlead", "adsys", "adser",
              "advertise", "redirect", "popunder", "punder", "popout", "click", "track", "play", "pop", "prebid", "bid",
@@ -56,12 +57,10 @@ def is_same_request(url1, url2, strict=False):
 
 
 def BSFilterByAnyString(tag):
-    # Level1: Rather strict matching in inner text
+    global requestURL
+
     scheme, netloc, path, params, query, fragment = parse_url(requestURL)
     fuzzy_url = '/'.join([netloc, path])
-
-    if requestURL in tag.text:
-        return tag
 
     # Following 2 ways are for attributes
     for attr_val in list(tag.attrs.values()):
@@ -84,6 +83,8 @@ def BSFilterByAnyString(tag):
 
 
 def getAttrByURL(tag):
+    global requestURL
+
     scheme, netloc, path, params, query, fragment = parse_url(requestURL)
     fuzzy_url = '/'.join([netloc, path])
 
@@ -107,6 +108,7 @@ def getAttrByURL(tag):
 
 
 def ModifyURLLength(delta):
+    global modifiedRequestURL
     tag = soup.find(BSFilterByAnyString)
     attr = getAttrByURL(tag)
 
@@ -119,6 +121,7 @@ def ModifyURLLength(delta):
     else:
         for i in range(delta):
             tag.attrs[attr] += "#"
+    modifiedRequestURL = tag.attrs[attr]
 
 
 def splitHostAndPath(str):
@@ -131,6 +134,7 @@ def splitHostAndPath(str):
 
 # All of the following "Replacing" would replace with random chars. The server may parse the URL dynamically
 def ModifyADKeyword(add):
+    global modifiedRequestURL
     tag = soup.find(BSFilterByAnyString)
     attr = getAttrByURL(tag)
     hostPathArray = splitHostAndPath(tag.attrs[attr])
@@ -142,10 +146,12 @@ def ModifyADKeyword(add):
             tag.attrs[attr] = hostPathArray[0] + hostPathArray[1].replace(adWord, randStr)
     elif add == 1:
         tag.attrs[attr] += "#" + random.choice(adKeyWord)
+    modifiedRequestURL = tag.attrs[attr]
 
 
 # Possibly not usable since it replaces the special chars in the URL, but the server may parse the URL dynamically
 def ModifyADKeyChar(add):
+    global modifiedRequestURL
     tag = soup.find(BSFilterByAnyString)
     attr = getAttrByURL(tag)
     hostPathArray = splitHostAndPath(tag.attrs[attr])
@@ -157,6 +163,7 @@ def ModifyADKeyChar(add):
                     string.ascii_lowercase) + adWord)
     elif add == 1:
         tag.attrs[attr] += "#?" + random.choice(adKeyWord)
+    modifiedRequestURL = tag.attrs[attr]
 
 
 # Not tested
@@ -195,6 +202,7 @@ def GenerateURLWithQS(url, qsdict):
 
 
 def ModifyBaseDomainQueryString(add, domain):
+    global modifiedRequestURL
     tag = soup.find(BSFilterByAnyString)
     attr = getAttrByURL(tag)
     # Trim the domain
@@ -214,9 +222,11 @@ def ModifyBaseDomainQueryString(add, domain):
         qsdict = GetQSDictFromURL(tag.attrs[attr])
         qsdict[str(random.randint(0, 999999))] = domain
         tag.attrs[attr] = GenerateURLWithQS(tag.attrs[attr], qsdict)
+    modifiedRequestURL = tag.attrs[attr]
 
 
 def ModifyScreenDimensionInBaseURL(add):
+    global modifiedRequestURL
     tag = soup.find(BSFilterByAnyString)
     attr = getAttrByURL(tag)
     hostPathArray = splitHostAndPath(tag.attrs[attr])
@@ -224,9 +234,11 @@ def ModifyScreenDimensionInBaseURL(add):
         tag.attrs[attr] = hostPathArray[0] + ReplaceX(hostPathArray[1])
     elif add == 1:
         tag.attrs[attr] += "#" + str(random.randint(0, 10000)) + "x" + str(random.randint(0, 10000))
+    modifiedRequestURL = tag.attrs[attr]
 
 
 def ModifyADDimensionInQS(add):
+    global modifiedRequestURL
     tag = soup.find(BSFilterByAnyString)
     attr = getAttrByURL(tag)
     if add == -1:
@@ -242,9 +254,11 @@ def ModifyADDimensionInQS(add):
         else:
             tag.attrs[attr] += "?" + random.choice(string.ascii_lowercase) + "=" + str(
                 random.randint(0, 10000)) + "x" + str(random.randint(0, 10000))
+    modifiedRequestURL = tag.attrs[attr]
 
 
 def ModifyScreenDimensionKeywordInQS(add):
+    global modifiedRequestURL
     tag = soup.find(BSFilterByAnyString)
     attr = getAttrByURL(tag)
     if add == -1:
@@ -260,6 +274,7 @@ def ModifyScreenDimensionKeywordInQS(add):
             tag.attrs[attr] += "&" + random.choice(screenResolution) + "=" + random.choice(string.ascii_lowercase)
         else:
             tag.attrs[attr] += "?" + random.choice(screenResolution) + "=" + random.choice(string.ascii_lowercase)
+    modifiedRequestURL = tag.attrs[attr]
 
 
 def ReplaceX(text):
@@ -278,6 +293,7 @@ def ReplaceX(text):
 
 
 def ModifyHostName(setToBaseDomain, baseDomain):
+    global modifiedRequestURL
     tag = soup.find(BSFilterByAnyString)
     attr = getAttrByURL(tag)
     if setToBaseDomain == 1:
@@ -291,6 +307,7 @@ def ModifyHostName(setToBaseDomain, baseDomain):
         urlPartsList = list(urlParts)
         urlPartsList[1] = urlPartsList[1] + "."
         tag.attrs[attr] = urlunparse(urlPartsList)
+    modifiedRequestURL = tag.attrs[attr]
 
 
 def ModifyHostNameWithSubDomain(addSubdomain, baseDomain):
@@ -478,20 +495,22 @@ def DecreaseFirstParentAverageDegreeConnectivity(delta):
         tag.append(newTag)
 
 
-def IncreaseURLLengt(delta):
+def IncreaseURLLength(delta):
     global deltaNodes, soup
     tag = soup.find(BSFilterByAnyString)
     tag.attrs["src"] = tag.attrs["src"] + '*' * delta
 
 
 def featureMapbacks(name, html, url, delta=None, domain=None):
-    global deltaNodes, soup, requestURL, baseURL
+    global deltaNodes, soup, requestURL, baseURL, modifiedRequestURL
     deltaNodes = 0
     soup = html
     requestURL = url
+    modifiedRequestURL = url
     baseURL = domain
 
     before_mapback = str(soup)
+    #print("URL to find: %s" % url)
     print("Feature name: %s | %s" % (name, str(delta)))
 
     if name == "FEATURE_GRAPH_NODES" or name == "FEATURE_GRAPH_EDGES":
@@ -547,10 +566,7 @@ def featureMapbacks(name, html, url, delta=None, domain=None):
     # TODO: lack ctx info for QS and URL length. We can add it if we know we are modifying the features of the same webpage. We know for sure some features would change if modifying other features
 
     elif name == "FEATURE_URL_LENGTH":
-        # if delta > 0:
         ModifyURLLength(delta)
-        # elif delta < 0:
-        #     print("Invalid delta parameter.")
     elif name == "FEATURE_AD_KEYWORD":
         ModifyADKeyword(delta)
     elif name == "FEATURE_SPECIAL_CHAR_AD_KEYWORD":
@@ -574,8 +590,12 @@ def featureMapbacks(name, html, url, delta=None, domain=None):
 
     after_mapback = str(soup)
     if before_mapback == after_mapback:
-        return None
+        return None, None
     else:
         print("Modification occured!")
 
-    return soup
+    if requestURL != modifiedRequestURL:
+        print("Some modifications occured in URL:")
+        print("Before: %s | After: %s" % (requestURL, modifiedRequestURL))
+
+    return soup, modifiedRequestURL
